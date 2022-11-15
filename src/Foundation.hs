@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ExplicitForAll #-}
@@ -17,6 +19,7 @@ import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
 import Control.Monad.Logger (LogSource)
+import Control.Monad.Reader
 
 -- Used only when in "auth-dummy-login" setting is enabled.
 import Yesod.Auth.Dummy
@@ -39,6 +42,9 @@ data App = App
     , appHttpManager :: Manager
     , appLogger      :: Logger
     }
+
+newtype AppM a = AppM { runAppM :: ReaderT App IO a }
+    deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader App)
 
 data MenuItem = MenuItem
     { menuItemLabel :: Text
@@ -123,7 +129,8 @@ instance Yesod App where
     -- Routes not requiring authentication.
     isAuthorized (AuthR _) _ = return Authorized
     isAuthorized HomeR _ = return Authorized
-    isAuthorized RequestsR _ = return Authorized
+    isAuthorized HomeR _ = return Authorized
+    isAuthorized StartPlexAuthR _ = return Authorized
     isAuthorized FaviconR _ = return Authorized
     isAuthorized RobotsR _ = return Authorized
     isAuthorized (StaticR _) _ = return Authorized

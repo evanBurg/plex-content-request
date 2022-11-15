@@ -11,6 +11,14 @@ Email
     userId UserId Maybe
     verkey Text Maybe
     UniqueEmail email
+Session json
+    pinId Int
+    pinCode Text
+    authToken Text Maybe default=NULL
+    username Text Maybe default=NULL
+    title Text Maybe default=NULL
+    email Text Maybe default=NULL
+    deriving Typeable
 ContentRequest json -- Adding "json" causes ToJSON and FromJSON instances to be derived.
     imdbId Text
     resultType Text
@@ -19,5 +27,4 @@ ContentRequest json -- Adding "json" causes ToJSON and FromJSON instances to be 
     description Text
     createdAt UTCTime
     updatedAt UTCTime
-    deriving Eq
-    deriving Show
+    deriving Typeable

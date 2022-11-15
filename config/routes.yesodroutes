@@ -11,3 +11,4 @@
 /requests RequestsR GET
 /create-request CreateRequestR POST
 /start-plex-auth StartPlexAuthR GET
+/follow-up-plex-auth FollowUpPlexAuthR GET

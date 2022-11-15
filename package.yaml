@@ -45,7 +45,9 @@ dependencies:
 - time
 - case-insensitive
 - wai
+- wai-cors
 - foreign-store
+- mtl
 
 # The library contains all of our application code. The executable
 # defined below is just a thin wrapper.
