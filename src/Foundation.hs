@@ -129,7 +129,7 @@ instance Yesod App where
     -- Routes not requiring authentication.
     isAuthorized (AuthR _) _ = return Authorized
     isAuthorized HomeR _ = return Authorized
-    isAuthorized HomeR _ = return Authorized
+    isAuthorized FollowUpPlexAuthR _ = return Authorized
     isAuthorized StartPlexAuthR _ = return Authorized
     isAuthorized FaviconR _ = return Authorized
     isAuthorized RobotsR _ = return Authorized

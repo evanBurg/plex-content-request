@@ -12,13 +12,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Handler.Home where
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
-import Network.Wai (responseLBS)
 import Data.Aeson
 import Debug.Trace
-import Data.Either
 import Network.HTTP.Client.MultipartFormData
 import Data.Text.Lazy    as TL
 import Import
@@ -50,6 +49,9 @@ postCreateRequestR = do
     insertedRqst <- runDB $ insertEntity request
     returnJson insertedRqst
 
+getSessionFromPin :: Import.Text -> DB (Maybe (Entity Session))
+getSessionFromPin pin = selectFirst [SessionPinCode ==. pin] []
+
 createSession :: PlexPinResponse -> HandlerFor App PlexPinResponse
 createSession pin = do
     _ <- runDB $ insertEntity Session {
@@ -62,12 +64,26 @@ createSession pin = do
     }
     pure pin
 
+updateSession :: Int -> PlexUserResponse -> Handler ()
+updateSession ssnId userResponse = do
+    liftIO $ traceIO "[updateSession] update session"
+    let authToken = plexUserResponseAuthToken userResponse
+        username = plexUserResponseUsername userResponse
+        title = plexUserResponseTitle userResponse
+        email = plexUserResponseEmail userResponse
+    runDB $ updateWhere [SessionPinId ==. ssnId] [
+            SessionAuthToken =. Just authToken,
+            SessionUsername =. Just username,
+            SessionTitle =. Just title,
+            SessionEmail =. Just email
+        ]
+
 fetchPlexPin :: IO (Either String PlexPinResponse)
 fetchPlexPin = do
     traceIO "[fetchPlexPin] Generate new HTTP manager"
     manager <- Network.HTTP.Client.newManager tlsManagerSettings
     let headers = [("Content-Type", "application/x-www-form-urlencoded"), ("accept", "application/json")]
-    let body = [partBS "strong" "true", partBS "X-Plex-Product" (lazyTextToByteString plexProduct), partBS "X-Plex-Client-Identifier" (lazyTextToByteString plexIdentifier)]
+        body = [partBS "strong" "true", partBS "X-Plex-Product" (lazyTextToByteString plexProduct), partBS "X-Plex-Client-Identifier" (lazyTextToByteString plexIdentifier)]
     traceIO "[fetchPlexPin] Make HTTP request to Plex"
     (plexResponse, status) <- postFormData manager "https://plex.tv/api/v2/pins" headers body
     traceIO ("[fetchPlexPin] Got a " ++ show status ++ " response")
@@ -75,6 +91,50 @@ fetchPlexPin = do
     case status of
         200 -> pure $ eitherDecode plexResponse
         201 -> pure $ eitherDecode plexResponse
+        _ -> pure $ Left "Improper response from plex"
+
+fetchPlexUser :: Maybe Import.Text -> IO (Either String PlexUserResponse)
+fetchPlexUser authToken = case authToken of
+    Nothing -> pure $ Left "[fetchPlexUser]: No auth token provided"
+    Just tkn -> do
+        traceIO "[fetchPlexUser] Generate new HTTP manager"
+        manager <- Network.HTTP.Client.newManager tlsManagerSettings
+        traceIO "[fetchPlexUser] Make HTTP request to Plex"
+        let strIdent = TL.unpack plexIdentifier
+            strProduct = TL.unpack plexProduct
+            strToken = Import.unpack tkn
+            url = "https://plex.tv/api/v2/user/?X-Plex-Product" ++ strProduct ++ "&X-Plex-Client-Identifier=" ++ strIdent ++ "&X-Plex-Token=" ++ strToken
+            headers = [("accept", "application/json")]
+        traceIO $ "[fetchPlexUser] auth token: " ++ strToken
+        traceIO $ "[fetchPlexUser] product: " ++ strProduct
+        traceIO $ "[fetchPlexUser] identifier: " ++ strIdent
+        traceIO $ "[fetchPlexUser] url: " ++ url
+        (plexResponse, status) <- fetch manager url headers
+        case status of
+            200 -> pure $ eitherDecode plexResponse
+            _ -> pure $ Left "Improper response from plex"
+
+followPlexPin :: Int -> Import.Text -> IO (Either String PlexUserResponse)
+followPlexPin ssnId code = do
+    traceIO "[fetchPlexPin] Generate new HTTP manager"
+    manager <- Network.HTTP.Client.newManager tlsManagerSettings
+    traceIO "[fetchPlexPin] Make HTTP request to Plex"
+    let strCode = Import.unpack code
+        strIdent = TL.unpack plexIdentifier
+        url = "https://plex.tv/api/v2/pins/" ++ show ssnId ++ "?code=" ++ strCode ++ "&X-Plex-Client-Identifier=" ++ strIdent
+        headers = [("accept", "application/json")]
+    traceIO $ "[fetchPlexPin] pin code: " ++ strCode
+    traceIO $ "[fetchPlexPin] identifier: " ++ strIdent
+    traceIO $ "[fetchPlexPin] url: " ++ url
+    (plexResponse, status) <- fetch manager url headers
+    traceIO ("[fetchPlexPin] Got a " ++ show status ++ " response")
+    traceIO (show plexResponse)
+    case status of
+        200 -> case eitherDecode plexResponse of
+            Left parseErr -> pure $ Left parseErr
+            Right pinResponse -> do
+                let authToken = plexPinResponseAuthToken pinResponse
+                fetchPlexUser authToken
         _ -> pure $ Left "Improper response from plex"
 
 getStartPlexAuthR :: Handler Value
@@ -87,39 +147,28 @@ getStartPlexAuthR = do
             _ <- createSession pin
             sendResponse $ generatePlexAuthURL $ plexPinResponseCode pin
 
-getSessionFromPin :: Import.Text -> DB (Maybe (Entity Session))
-getSessionFromPin pin = selectFirst [SessionPinCode ==. pin] []
-
-followPlexPin :: Int -> Import.Text -> IO (Either String PlexPinResponse)
-followPlexPin ssnId code = do
-    traceIO "[fetchPlexPin] Generate new HTTP manager"
-    manager <- Network.HTTP.Client.newManager tlsManagerSettings
-    traceIO "[fetchPlexPin] Make HTTP request to Plex"
-    let strCode = Import.unpack code
-    let strIdent = TL.unpack plexIdentifier
-    let headers = [("accept", "application/json")]
-    (plexResponse, status) <- fetch manager ("https://plex.tv/api/v2/pins/" ++ show ssnId ++ "?code=" ++ strCode ++ "X-Plex-Identifier" ++ strIdent) headers
-    traceIO ("[fetchPlexPin] Got a " ++ show status ++ " response")
-    traceIO (show plexResponse)
-    case status of
-        200 -> pure $ eitherDecode plexResponse
-        201 -> pure $ eitherDecode plexResponse
-        _ -> pure $ Left "Improper response from plex"
-
 getFollowUpPlexAuthR :: Handler Value
 getFollowUpPlexAuthR = do
     maybePin <- lookupGetParam "pin"
     case maybePin of
-        Nothing -> sendResponseStatus status400 ("[getFollowUpPlexAuthR] You must provide the pin you are trying to follow up on":: Import.Text)
+        Nothing -> sendResponseStatus status400 ("[getFollowUpPlexAuthR] You must provide the pin you are trying to follow up on" :: Import.Text)
         Just pin -> do
-            maybeSession <- getSessionFromPin pin -- How to fix this monad context error
+            maybeSession <- runDB $ getSessionFromPin pin
             case maybeSession of
                 Nothing -> sendResponseStatus status400 ("[getFollowUpPlexAuthR] No session matching that pin":: Import.Text)
                 Just sessionEnt -> do
-                    let session = entityVal sessionEnt -- Can I pattern match this in the case instead of needing to call this function?
-                    let ssnId = sessionPinId session
-                    let ssnPin = sessionPinCode session
-                    plexPinResponse <- liftIO $ followPlexPin ssnId ssnPin
-                    returnJson plexPinResponse
+                    let session = entityVal sessionEnt
+                        ssnId = sessionPinId session
+                        ssnPin = sessionPinCode session
+                        maybeAuthToken = sessionAuthToken session
+                    plexUserResponse <- liftIO $ fetchPlexUser maybeAuthToken
+                    case plexUserResponse of
+                        Left _ -> do
+                            plexPinResponse <- liftIO $ followPlexPin ssnId ssnPin
+                            case plexPinResponse of
+                                Left _ -> liftIO $ traceIO "[getFollowUpPlexAuthR] Could not update session information"
+                                Right usr -> updateSession ssnId usr
+                            returnJson plexPinResponse
+                        Right user -> returnJson user
 
 

@@ -1,21 +1,20 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Lib (fetch, post, postFormData, plexProduct, plexIdentifier, generatePlexAuthURL, stringToByteString, lazyTextToByteString, PlexPinResponse (..)) where
+{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE DeriveAnyClass #-}
+module Lib (fetch, post, postFormData, plexProduct, plexIdentifier, generatePlexAuthURL, stringToByteString, lazyTextToByteString, PlexPinResponse (..), PlexUserResponse (..)) where
 import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
-import Data.Char (toLower)
 import Network.HTTP.Types.Header
 import Data.Aeson
 import Data.ByteString            as B
 import Data.ByteString.Lazy       as BL
 import Data.Text.Lazy             as TL
 import Data.Text.Lazy.Encoding    as TL
-import Data.Text.Lazy.IO          as TL
 import Data.Text                  as T
 import Data.Text.Encoding         as T
-import Data.Text.IO               as T
 import Network.HTTP.Client.MultipartFormData
-import Debug.Trace
+import GHC.Generics
 
 -- data PlexLocation = PlexLocation {
 --     plexLocationCode :: String,
@@ -37,15 +36,15 @@ data PlexPinResponse = PlexPinResponse {
         plexPinResponseQr :: TL.Text,
         plexPinResponseClientIdentifier :: TL.Text,
         -- plexPinResponseLocation :: PlexLocation,
-        plexPinResponseExpiresIn :: Int
+        plexPinResponseExpiresIn :: Int,
         -- plexPinResponseCreatedAt :: Int,
         -- plexPinResponseExpiresAt :: Int,
-        -- plexPinResponseAuthToken :: Maybe Bool,
+        plexPinResponseAuthToken :: Maybe T.Text
         -- plexPinResponseNewRegistration :: Maybe Bool,
-    } deriving (Show)
+    } deriving (Show, Generic, ToJSON)
 
 instance FromJSON PlexPinResponse where
-    parseJSON = traceStack "Original" $ withObject "PlexPinResponse" $ \v -> PlexPinResponse
+    parseJSON = withObject "PlexPinResponse" $ \v -> PlexPinResponse
         <$> v .: "id"
         <*> v .: "code"
         <*> v .: "product"
@@ -53,8 +52,32 @@ instance FromJSON PlexPinResponse where
         <*> v .: "qr"
         <*> v .: "clientIdentifier"
         <*> v .: "expiresIn"
+        <*> v .: "authToken"
 
 -- $(deriveJSON (defaultOptions{fieldLabelModifier = Prelude.drop 15, constructorTagModifier = Prelude.map Data.Char.toLower}) ''PlexPinResponse)
+
+
+data PlexUserResponse = PlexUserResponse {
+    plexUserResponseId :: Int,
+    plexUserResponseUuid :: T.Text,
+    plexUserResponseUsername :: T.Text,
+    plexUserResponseEmail :: T.Text,
+    plexUserResponseTitle :: T.Text,
+    plexUserResponseThumb :: T.Text,
+    plexUserResponseAuthToken :: T.Text,
+    plexUserResponsepin :: T.Text
+} deriving (Show, Generic, ToJSON)
+
+instance FromJSON PlexUserResponse where
+    parseJSON = withObject "PlexUserResponse" $ \v -> PlexUserResponse
+        <$> v .: "id"
+        <*> v .: "uuid"
+        <*> v .: "username"
+        <*> v .: "email"
+        <*> v .: "title"
+        <*> v .: "thumb"
+        <*> v .: "authToken"
+        <*> v .: "pin"
 
 plexProduct :: TL.Text
 plexProduct = "Kev Plex Request App"
